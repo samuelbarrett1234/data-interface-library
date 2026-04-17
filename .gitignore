@@ -1,0 +1,10 @@
+build/
+builds/
+data/
+tmp/
+temp/
+bin/
+.venv/
+.vscode/
+__pycache__/
+.ipynb_checkpoints/
