@@ -3,7 +3,6 @@
 
 
 #include <cstddef>
-#include <type_traits>
 
 
 namespace di
@@ -11,378 +10,161 @@ namespace di
 
 
 /*
-* "Detection idiom" helper.
-*/
-template<typename ...>
-using void_t = void;
-
-
-/*
 * Users MUST overload this to contain a
 * `Type` type which maps to the type of
 * this field in the context of this data
-* interface.
+* interface. They must also set
+* `exists = true`.
 */
 template<typename FieldTag, typename DataInterface>
 struct FieldTypeImpl
 {
-    static_assert(
-        false,
-        "This type of data interface does not "
-        "support this type of field."
-    );
+    static inline constexpr bool exists = false;
+
+    // using Type = YourTypeGoesHere;
 };
-
-
-/*
-* Users MUST overload this to contain a
-* `Type` type which maps to the type of
-* this entity in the context of this data
-* interface.
-*/
-template<typename EntityTag, typename DataInterface>
-struct EntityTypeImpl
-{
-    static_assert(
-        false,
-        "This type of data interface does not "
-        "support this type of entity."
-    );
-};
-
-
-/*
-* Helper to extract the field type.
-*/
-template<typename FieldTag, typename DataInterface>
-using FieldType = typename FieldTypeImpl<FieldTag, DataInterface>::Type;
-
-
-/*
-* Helper to extract the entity value type.
-*/
-template<typename EntityTag, typename DataInterface>
-using EntityType = typename EntityTypeImpl<EntityTag, DataInterface>::Type;
 
 
 /*
 * Load the given field from the given entity
 * in the given data interface. This should
-* ALWAYS be inlined (or inlinable.) It should
-* also be `noexcept`, but feel free to write
-* assertions which check that the load is
-* valid.
+* ALWAYS be inlined (or inlinable.) Template
+* specialisations should also make sure to
+* set `exists = true`.
 */
-template<typename FieldTag, typename EntityTag, typename DataInterface>
-inline FieldType<FieldTag, DataInterface>
-    load(
-        const DataInterface&,
-        EntityType<EntityTag, DataInterface>)
-    noexcept
+template<typename FieldTag, typename EntityType, typename DataInterface>
+struct LoadImpl
 {
-    static_assert(
-        false,
-        "This type of entity does not support "
-        "reading of this field in the context "
-        "of this data interface."
-    );
-}
+    static inline constexpr bool exists = false;
+
+    // static inline FieldType<FieldTag, DataInterface>
+    //     impl(DataInterface&, EntityType);
+};
 
 
 /*
 * Store the given value for the given field
 * to the given entity in the given data
 * interface. This should ALWAYS be inlined
-* (or inlinable.) It should also be `noexcept`,
-* but feel free to write assertions which
-* check that the load is valid.
+* (or inlinable.) Template specialisations
+* should also make sure to set `exists = true`.
 */
-template<typename FieldTag, typename EntityTag, typename DataInterface>
+template<typename FieldTag, typename EntityType, typename DataInterface>
+struct StoreImpl
+{
+    static inline constexpr bool exists = false;
+
+    // static inline void
+    //     impl(DataInterface&, EntityType, FieldType<FieldTag, DataInterface>);
+};
+
+
+/*
+* Override this traits implementation
+* providing any of the functionality you
+* like, setting the corresponding
+* `_exists` bools to true where you have
+* done so.
+*/
+template<typename EntityType>
+struct EntityImpl
+{
+    static inline constexpr bool next_exists = false;
+    // static inline EntityType next_impl(EntityType e);
+
+    static inline constexpr bool prev_exists = false;
+    // static inline EntityType prev_impl(EntityType e);
+
+    static inline constexpr bool advance_exists = false;
+    // static inline EntityType advance_impl(EntityType e, std::ptrdiff_t d);
+
+    static inline constexpr bool difference_exists = false;
+    // static inline std::ptrdiff_t difference_impl(EntityType e1, EntityType e2);
+
+    static inline constexpr bool less_exists = false;
+    // static inline bool less_impl(EntityType e1, EntityType e2);
+};
+
+
+template<typename FieldTag, typename DataInterface>
+using FieldType = typename FieldTypeImpl<FieldTag, DataInterface>::Type;
+
+
+template<typename FieldTag, typename EntityType, typename DataInterface>
+static inline constexpr bool is_loadable
+    = LoadImpl<FieldTag, EntityType, DataInterface>::exists;
+
+
+template<typename FieldTag, typename EntityType, typename DataInterface>
+requires is_loadable<FieldTag, EntityType, DataInterface>
+inline FieldType<FieldTag, DataInterface>
+    load(DataInterface& di, EntityType e)
+{
+    return LoadImpl<FieldTag, EntityType, DataInterface>::impl(di, e);
+}
+
+
+template<typename FieldTag, typename EntityType, typename DataInterface>
+static inline constexpr bool is_storeable
+    = StoreImpl<FieldTag, EntityType, DataInterface>::exists;
+
+
+template<typename FieldTag, typename EntityType, typename DataInterface>
+requires is_storeable<FieldTag, EntityType, DataInterface>
 inline void
-    store(
-        DataInterface&,
-        EntityType<EntityTag, DataInterface>,
-        FieldType<FieldTag, DataInterface>)
-    noexcept
+    store(DataInterface& di, EntityType e, FieldType<FieldTag, DataInterface> f)
 {
-    static_assert(
-        false,
-        "This type of entity does not support "
-        "writing of this field in the context "
-        "of this data interface."
-    );
+    return StoreImpl<FieldTag, EntityType, DataInterface>::impl(di, e, f);
 }
 
 
-/*
-* Get the next entity ("increment".)
-*/
-template<typename EntityTag, typename DataInterface>
-inline EntityType<EntityTag, DataInterface>
-    next(
-        const DataInterface&,
-        EntityType<EntityTag, DataInterface>)
-    noexcept
+template<typename EntityType>
+static inline constexpr bool is_nextable
+    = EntityImpl<EntityType>::next_exists;
+template<typename EntityType>
+static inline constexpr bool is_prevable
+    = EntityImpl<EntityType>::prev_exists;
+template<typename EntityType>
+static inline constexpr bool is_advanceable
+    = EntityImpl<EntityType>::advance_exists;
+template<typename EntityType>
+static inline constexpr bool is_diffable
+    = EntityImpl<EntityType>::difference_exists;
+template<typename EntityType>
+static inline constexpr bool is_comparable
+    = EntityImpl<EntityType>::less_exists;
+
+
+template<typename EntityType>
+requires is_nextable<EntityType>
+inline EntityType next(EntityType e)
 {
-    static_assert(
-        false,
-        "This type of entity does not support "
-        "increment in the context of this data "
-        "interface."
-    );
+    return EntityImpl<EntityType>::next_impl(e);
 }
-
-
-/*
-* Get the previous entity ("increment".)
-*/
-template<typename EntityTag, typename DataInterface>
-inline EntityType<EntityTag, DataInterface>
-    prev(
-        const DataInterface&,
-        EntityType<EntityTag, DataInterface>)
-    noexcept
+template<typename EntityType>
+requires is_prevable<EntityType>
+inline EntityType prev(EntityType e)
 {
-    static_assert(
-        false,
-        "This type of entity does not support "
-        "decrement in the context of this data "
-        "interface."
-    );
+    return EntityImpl<EntityType>::prev_impl(e);
 }
-
-
-/*
-* Advance the entity by some value ("random
-* access".)
-*
-* NOTE: `advance` by 1 must be equivalent
-* to `next`. Likewise, `advance` by -1
-* must be equivalent to `prev`.
-*/
-template<typename EntityTag, typename DataInterface>
-inline EntityType<EntityTag, DataInterface>
-    advance(
-        const DataInterface&,
-        EntityType<EntityTag, DataInterface>,
-        std::ptrdiff_t)
-    noexcept
+template<typename EntityType>
+requires is_advanceable<EntityType>
+inline EntityType advance(EntityType e, std::ptrdiff_t d)
 {
-    static_assert(
-        false,
-        "This type of entity does not support "
-        "random access in the context of this data "
-        "interface."
-    );
+    return EntityImpl<EntityType>::advance_impl(e, d);
 }
-
-
-/*
-* Take the difference between two entities.
-*
-* NOTE: this is not just any old distance,
-* but is specifically the inverse of
-* `advance`: what would you have to advance
-* the former by to get the latter?
-*
-* Note that the return value of this can
-* be negative.
-*/
-template<typename EntityTag, typename DataInterface>
-inline std::ptrdiff_t
-    difference(
-        const DataInterface&,
-        EntityType<EntityTag, DataInterface>,
-        EntityType<EntityTag, DataInterface>)
-    noexcept
+template<typename EntityType>
+requires is_diffable<EntityType>
+inline std::ptrdiff_t difference(EntityType e1, EntityType e2)
 {
-    static_assert(
-        false,
-        "This type of entity does not support "
-        "taking differences."
-    );
+    return EntityImpl<EntityType>::difference_impl(e1, e2);
 }
-
-
-/*
-* Compare a pair of entities. This is
-* typically only possible when
-* `advance` is also implemented.
-*
-* NOTE: this is NOT comparison by an
-* arbitrary key. It is specifically
-* comparison with respect to the order
-* induced by `advance`/`next`/`prev`.
-*/
-template<typename EntityTag, typename DataInterface>
-inline bool
-    less(
-        const DataInterface&,
-        EntityType<EntityTag, DataInterface>,
-        EntityType<EntityTag, DataInterface>)
-    noexcept
+template<typename EntityType>
+requires is_comparable<EntityType>
+inline bool less(EntityType e1, EntityType e2)
 {
-    static_assert(
-        false,
-        "This type of entity does not support "
-        "comparison."
-    );
+    return EntityImpl<EntityType>::less_impl(e1, e2);
 }
-
-
-/*
-* What follows is a helper using the
-* "detection idiom" which checks whether
-* a given field can be loaded from a given
-* entity in the context of a given data
-* interface.
-*/
-template<typename FieldTag, typename EntityTag, typename DataInterface, typename = void>
-struct IsLoadableImpl : std::false_type {};
-
-
-template<typename FieldTag, typename EntityTag, typename DataInterface>
-struct IsLoadableImpl<
-        FieldTag, EntityTag, DataInterface,
-        void_t<decltype(load<FieldTag>(
-            std::declval<DataInterface&>(),
-            std::declval<EntityType<EntityTag, DataInterface>>()))>>
-    : std::true_type
-{ };
-
-
-template<typename FieldTag, typename EntityTag, typename DataInterface>
-inline constexpr bool is_loadable = IsLoadableImpl<FieldTag, EntityTag, DataInterface>::value;
-
-
-/*
-* Corresponding version for storing.
-*/
-template<typename FieldTag, typename EntityTag, typename DataInterface, typename = void>
-struct IsStoreableImpl : std::false_type {};
-
-
-template<typename FieldTag, typename EntityTag, typename DataInterface>
-struct IsStoreableImpl<
-        FieldTag, EntityTag, DataInterface,
-        void_t<decltype(store<FieldTag>(
-            std::declval<DataInterface&>(),
-            std::declval<EntityType<EntityTag, DataInterface>>(),
-            std::declval<FieldType<FieldTag, DataInterface>>()))>>
-    : std::true_type
-{ };
-
-
-template<typename FieldTag, typename EntityTag, typename DataInterface>
-inline constexpr bool is_storeable = IsStoreableImpl<FieldTag, EntityTag, DataInterface>::value;
-
-
-/*
-* Corresponding version for `next`.
-*/
-template<typename EntityTag, typename DataInterface, typename = void>
-struct IsNextableImpl : std::false_type {};
-
-
-template<typename EntityTag, typename DataInterface>
-struct IsNextableImpl<
-        EntityTag, DataInterface,
-        void_t<decltype(next(
-            std::declval<DataInterface&>(),
-            std::declval<EntityType<EntityTag, DataInterface>>()))>>
-    : std::true_type
-{ };
-
-
-template<typename EntityTag, typename DataInterface>
-inline constexpr bool is_nextable = IsNextableImpl<EntityTag, DataInterface>::value;
-
-
-/*
-* Corresponding version for `prev`.
-*/
-template<typename EntityTag, typename DataInterface, typename = void>
-struct IsPrevableImpl : std::false_type {};
-
-
-template<typename EntityTag, typename DataInterface>
-struct IsPrevableImpl<
-        EntityTag, DataInterface,
-        void_t<decltype(prev(
-            std::declval<DataInterface&>(),
-            std::declval<EntityType<EntityTag, DataInterface>>()))>>
-    : std::true_type
-{ };
-
-
-template<typename EntityTag, typename DataInterface>
-inline constexpr bool is_prevable = IsPrevableImpl<EntityTag, DataInterface>::value;
-
-
-/*
-* Corresponding version for `advance`.
-*/
-template<typename EntityTag, typename DataInterface, typename = void>
-struct IsAdvanceableImpl : std::false_type {};
-
-
-template<typename EntityTag, typename DataInterface>
-struct IsAdvanceableImpl<
-        EntityTag, DataInterface,
-        void_t<decltype(advance(
-            std::declval<DataInterface&>(),
-            std::declval<EntityType<EntityTag, DataInterface>>(),
-            std::declval<std::ptrdiff_t>()))>>
-    : std::true_type
-{ };
-
-
-template<typename EntityTag, typename DataInterface>
-inline constexpr bool is_advanceable = IsAdvanceableImpl<EntityTag, DataInterface>::value;
-
-
-/*
-* Corresponding version for `difference`.
-*/
-template<typename EntityTag, typename DataInterface, typename = void>
-struct IsDiffableImpl : std::false_type {};
-
-
-template<typename EntityTag, typename DataInterface>
-struct IsDiffableImpl<
-        EntityTag, DataInterface,
-        void_t<decltype(difference(
-            std::declval<DataInterface&>(),
-            std::declval<EntityType<EntityTag, DataInterface>>(),
-            std::declval<EntityType<EntityTag, DataInterface>>()))>>
-    : std::true_type
-{ };
-
-
-template<typename EntityTag, typename DataInterface>
-inline constexpr bool is_diffable = IsDiffableImpl<EntityTag, DataInterface>::value;
-
-
-/*
-* Corresponding version for `less`.
-*/
-template<typename EntityTag, typename DataInterface, typename = void>
-struct IsComparableImpl : std::false_type {};
-
-
-template<typename EntityTag, typename DataInterface>
-struct IsComparableImpl<
-        EntityTag, DataInterface,
-        void_t<decltype(less(
-            std::declval<DataInterface&>(),
-            std::declval<EntityType<EntityTag, DataInterface>>(),
-            std::declval<EntityType<EntityTag, DataInterface>>()))>>
-    : std::true_type
-{ };
-
-
-template<typename EntityTag, typename DataInterface>
-inline constexpr bool is_comparable = IsComparableImpl<EntityTag, DataInterface>::value;
 
 
 /*
@@ -390,56 +172,23 @@ inline constexpr bool is_comparable = IsComparableImpl<EntityTag, DataInterface>
 * the other comparators in terms of this
 * one.
 */
-template<typename EntityTag, typename DataInterface>
-inline bool
-    greater(
-        const DataInterface& data_interface,
-        EntityType<EntityTag, DataInterface> a,
-        EntityType<EntityTag, DataInterface> b)
-    noexcept
+template<typename EntityType>
+requires is_comparable<EntityType>
+inline bool greater(EntityType e1, EntityType e2)
 {
-    static_assert(
-        is_comparable<EntityTag, DataInterface>,
-        "This entity, in the context of this data "
-        "interface, must have `less` implemented "
-        "in order to access any of the other "
-        "comparators."
-    );
-    return less(data_interface, b, a);
+    return less(e2, e1);
 }
-template<typename EntityTag, typename DataInterface>
-inline bool
-    greater_equal(
-        const DataInterface& data_interface,
-        EntityType<EntityTag, DataInterface> a,
-        EntityType<EntityTag, DataInterface> b)
-    noexcept
+template<typename EntityType>
+requires is_comparable<EntityType>
+inline bool greater_equal(EntityType e1, EntityType e2)
 {
-    static_assert(
-        is_comparable<EntityTag, DataInterface>,
-        "This entity, in the context of this data "
-        "interface, must have `less` implemented "
-        "in order to access any of the other "
-        "comparators."
-    );
-    return !less(data_interface, a, b);
+    return !less(e1, e2);
 }
-template<typename EntityTag, typename DataInterface>
-inline bool
-    less_equal(
-        const DataInterface& data_interface,
-        EntityType<EntityTag, DataInterface> a,
-        EntityType<EntityTag, DataInterface> b)
-    noexcept
+template<typename EntityType>
+requires is_comparable<EntityType>
+inline bool less_equal(EntityType e1, EntityType e2)
 {
-    static_assert(
-        is_comparable<EntityTag, DataInterface>,
-        "This entity, in the context of this data "
-        "interface, must have `less` implemented "
-        "in order to access any of the other "
-        "comparators."
-    );
-    return !greater(data_interface, a, b);
+    return !greater(e1, e2);
 }
 
 

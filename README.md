@@ -42,4 +42,4 @@ As a rule of thumb, only move entites within a range which the caller has alread
 
 ## Requirements
 
-C++17 or later for the "data_interface.hpp" header, C++20 or later for the examples.
+C++20 or later for the "data_interface.hpp" header due to concepts usage.
