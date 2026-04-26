@@ -8,9 +8,14 @@
 
 
 enum class VertexColour{ WHITE, GREY, BLACK };
+struct DenseGraphVertexColdIndex
+{
+    size_t index;
+};
 struct DenseGraphVertex
 {
-    size_t outdegree, index;
+    size_t outdegree;
+    DenseGraphVertexColdIndex cold_index;
 };
 struct DenseGraphVertexCold
 {
@@ -36,7 +41,7 @@ struct DenseGraph
         memory_logical_end = memory_begin;
         memory_physical_end = memory_begin + allocation_size;
 
-        colds.resize(num_vertices);
+        // colds.resize(num_vertices);
     }
     ~DenseGraph()
     {
@@ -48,7 +53,8 @@ struct DenseGraph
         DenseGraphVertex* const vertex
             = new (memory_logical_end) DenseGraphVertex{
                 .outdegree = num_edges,
-                .index = next_vertex_index++ };
+                .cold_index = DenseGraphVertexColdIndex{
+                    .index = next_vertex_index++ } };
 
         memory_logical_end += sizeof(DenseGraphVertex);
 
@@ -61,16 +67,16 @@ struct DenseGraph
 
     size_t next_vertex_index;
     std::byte *memory_begin, *memory_logical_end, *memory_physical_end;
-    std::vector<DenseGraphVertexCold> colds;
 };
 
 
 struct OutEdgeBeginFieldTag {};
 struct OutEdgeEndFieldTag {};
+struct VertexColdIndexTag {};
+struct DenseEdgeTargetTag {};
 struct VertexColourTag {};
 struct VertexParentTag {};
 struct VertexStackTag {};
-struct DenseEdgeTargetTag {};
 
 
 inline DenseGraphVertex* next_impl(
@@ -99,8 +105,8 @@ inline std::ptrdiff_t diff_impl(
     * (and would be UB anyway.)
     */
     const auto
-        i = static_cast<std::ptrdiff_t>(v1->index),
-        j = static_cast<std::ptrdiff_t>(v2->index);
+        i = static_cast<std::ptrdiff_t>(v1->cold_index.index),
+        j = static_cast<std::ptrdiff_t>(v2->cold_index.index);
 
     return j - i;
 }
@@ -118,7 +124,7 @@ inline std::ptrdiff_t less_impl(
     * pointers `v1, v2` here, even though
     * it would produce the same result.
     */
-    return v1->index < v2->index;
+    return v1->cold_index.index < v2->cold_index.index;
 }
 inline DenseGraphVertex** next_impl(
     DenseGraphVertex** const edge)
@@ -150,47 +156,61 @@ inline bool less_impl(
 }
 
 
+/*
+* Stateless DI for expressing the head-tail
+* allocation of vertices and edges.
+*/
+struct HeadTailBasicsDI{};
+
+
 namespace di
 {
 
 
 template<>
-struct FieldTypeImpl<OutEdgeBeginFieldTag, DenseGraph>
+struct FieldTypeImpl<OutEdgeBeginFieldTag, HeadTailBasicsDI>
 {
     using Type = DenseGraphVertex**;
 };
 template<>
-struct FieldTypeImpl<OutEdgeEndFieldTag, DenseGraph>
+struct FieldTypeImpl<OutEdgeEndFieldTag, HeadTailBasicsDI>
 {
     using Type = DenseGraphVertex**;
 };
 template<>
-struct FieldTypeImpl<VertexColourTag, DenseGraph>
+struct FieldTypeImpl<VertexColdIndexTag, HeadTailBasicsDI>
 {
-    using Type = VertexColour;
+    using Type = DenseGraphVertexColdIndex;
 };
 template<>
-struct FieldTypeImpl<VertexParentTag, DenseGraph>
+struct FieldTypeImpl<DenseEdgeTargetTag, HeadTailBasicsDI>
 {
     using Type = DenseGraphVertex*;
 };
-template<>
-struct FieldTypeImpl<VertexStackTag, DenseGraph>
-{
-    using Type = DenseGraphVertex*;
-};
-template<>
-struct FieldTypeImpl<DenseEdgeTargetTag, DenseGraph>
-{
-    using Type = DenseGraphVertex*;
-};
+
+
+// template<>
+// struct FieldTypeImpl<VertexColourTag, DenseGraph>
+// {
+//     using Type = VertexColour;
+// };
+// template<>
+// struct FieldTypeImpl<VertexParentTag, DenseGraph>
+// {
+//     using Type = DenseGraphVertex*;
+// };
+// template<>
+// struct FieldTypeImpl<VertexStackTag, DenseGraph>
+// {
+//     using Type = DenseGraphVertex*;
+// };
 
 
 }  // namespace di
 
 
-inline di::FieldType<OutEdgeBeginFieldTag, DenseGraph> load_impl(
-        const DenseGraph&,
+inline DenseGraphVertex** load_impl(
+        const HeadTailBasicsDI&,
         DenseGraphVertex* const vertex,
         OutEdgeBeginFieldTag)
     noexcept
@@ -203,82 +223,92 @@ inline di::FieldType<OutEdgeBeginFieldTag, DenseGraph> load_impl(
 }
 
 
-inline di::FieldType<OutEdgeEndFieldTag, DenseGraph> load_impl(
-        const DenseGraph& graph,
+inline DenseGraphVertex** load_impl(
+        const HeadTailBasicsDI& di,
         DenseGraphVertex* const vertex,
         OutEdgeEndFieldTag)
     noexcept
 {
-    return di::load<OutEdgeBeginFieldTag>(graph, vertex)
+    return di::load<OutEdgeBeginFieldTag>(di, vertex)
         + vertex->outdegree;
 }
 
 
-inline di::FieldType<VertexColourTag, DenseGraph> load_impl(
-        const DenseGraph& graph,
+inline DenseGraphVertexColdIndex load_impl(
+        const HeadTailBasicsDI&,
         DenseGraphVertex* const vertex,
-        VertexColourTag)
+        VertexColdIndexTag)
     noexcept
 {
-    return graph.colds[vertex->index].colour;
-}
-inline void store_impl(
-        DenseGraph& graph,
-        DenseGraphVertex* const vertex,
-        const di::FieldType<VertexColourTag, DenseGraph> colour,
-        VertexColourTag)
-    noexcept
-{
-    graph.colds[vertex->index].colour = colour;
+    return vertex->cold_index;
 }
 
 
-inline di::FieldType<VertexParentTag, DenseGraph> load_impl(
-        const DenseGraph& graph,
-        DenseGraphVertex* const vertex,
-        VertexParentTag)
-    noexcept
-{
-    return graph.colds[vertex->index].parent;
-}
-inline void store_impl(
-        DenseGraph& graph,
-        DenseGraphVertex* const vertex,
-        const di::FieldType<VertexParentTag, DenseGraph> parent,
-        VertexParentTag)
-    noexcept
-{
-    graph.colds[vertex->index].parent = parent;
-}
-
-
-inline di::FieldType<VertexStackTag, DenseGraph> load_impl(
-        const DenseGraph& graph,
-        DenseGraphVertex* const vertex,
-        VertexStackTag)
-    noexcept
-{
-    return graph.colds[vertex->index].stack;
-}
-inline void store_impl(
-        DenseGraph& graph,
-        DenseGraphVertex* const vertex,
-        const di::FieldType<VertexStackTag, DenseGraph> stack,
-        VertexStackTag)
-    noexcept
-{
-    graph.colds[vertex->index].stack = stack;
-}
-
-
-inline di::FieldType<DenseEdgeTargetTag, DenseGraph> load_impl(
-        const DenseGraph&,
-        DenseGraphVertex** edge,
+inline DenseGraphVertex* load_impl(
+        const HeadTailBasicsDI&,
+        DenseGraphVertex** const edge,
         DenseEdgeTargetTag)
     noexcept
 {
     return *edge;
 }
+
+
+// inline VertexColour load_impl(
+//         const GraphVertexColdData& graph,
+//         const DenseGraphVertexColdIndex index,
+//         VertexColourTag)
+//     noexcept
+// {
+//     return graph.colds[index.index].colour;
+// }
+// inline void store_impl(
+//         GraphVertexColdData& graph,
+//         const DenseGraphVertexColdIndex index,
+//         const VertexColour colour,
+//         VertexColourTag)
+//     noexcept
+// {
+//     graph.colds[index.index].colour = colour;
+// }
+
+
+// inline DenseGraphVertex* load_impl(
+//         const GraphVertexColdData& graph,
+//         const DenseGraphVertexColdIndex index,
+//         VertexParentTag)
+//     noexcept
+// {
+//     return graph.colds[index.index].parent;
+// }
+// inline void store_impl(
+//         GraphVertexColdData& graph,
+//         const DenseGraphVertexColdIndex index,
+//         DenseGraphVertex* const parent,
+//         VertexParentTag)
+//     noexcept
+// {
+//     graph.colds[index.index].parent = parent;
+// }
+
+
+// inline DenseGraphVertex* load_impl(
+//         const GraphVertexColdData& graph,
+//         const DenseGraphVertexColdIndex index,
+//         VertexStackTag)
+//     noexcept
+// {
+//     return graph.colds[index.index].stack;
+// }
+// inline void store_impl(
+//         GraphVertexColdData& graph,
+//         const DenseGraphVertexColdIndex index,
+//         DenseGraphVertex* const stack,
+//         VertexStackTag)
+//     noexcept
+// {
+//     graph.colds[index.index].stack = stack;
+// }
 
 
 void dfs_linked_stack(DenseGraph& graph)
@@ -295,8 +325,76 @@ void dfs_linked_stack(DenseGraph& graph)
                 DenseGraphVertex*>(
                     graph.memory_logical_end));
 
+    struct EmptyDI{};
+
+    /*
+    * Firstly, define a DI which understands
+    * the fields of the
+    * `DenseGraphVertexCold` struct.
+    */
+    auto cold_ptrs
+        = di::make_with_pointer_to_member_data_interface<
+            DenseGraphVertexCold,
+            &DenseGraphVertexCold::parent,
+            VertexParentTag>(
+        di::make_with_pointer_to_member_data_interface<
+            DenseGraphVertexCold,
+            &DenseGraphVertexCold::stack,
+            VertexStackTag>(
+        di::make_with_pointer_to_member_data_interface<
+            DenseGraphVertexCold,
+            &DenseGraphVertexCold::colour,
+            VertexColourTag>(EmptyDI{})));
+
+    /*
+    * Now define a DI which can convert an
+    * index `DenseGraphVertexColdIndex` to
+    * a pointer `DenseGraphVertexCold*` and
+    * then dispatches to `cold_ptrs` above.
+    */
+    std::vector<DenseGraphVertexCold> colds;
+    colds.resize(di::diff(vertex_begin, vertex_end));
+    auto cold_array
+        = di::make_entity_mapper_data_interface<
+            DenseGraphVertexColdIndex,
+            DenseGraphVertexCold*>(
+            cold_ptrs,
+            [&](const DenseGraphVertexColdIndex index)
+                -> DenseGraphVertexCold*
+            {
+                return &colds[index.index];
+            });
+
+    /*
+    * The `HeadTailBasicsDI` has no state
+    * and is what understands the
+    * `DenseGraphVertex*` vertex entities and
+    * `DenseGraphVertex**` edge entities.
+    *
+    * Let's take the disjoint union with
+    * the cold fields here.
+    */
+    auto head_tails_and_colds
+        = di::make_disjoint_union_data_interface(
+            HeadTailBasicsDI{},
+            cold_array);
+
+    /*
+    * Finally, we make the connection between
+    * the "hot" vertex entities
+    * `DenseGraphVertex*` and the cold entities
+    * `DenseGraphVertexCold*` via the connection
+    * index `DenseGraphVertexColdIndex`.
+    */
+    auto with_hot_and_cold_connection
+        = di::make_with_indirection_lookup<
+            VertexColdIndexTag,
+            DenseGraphVertex*,
+            true /* bijection */>(
+            head_tails_and_colds);
+
     di::graph::dfs_linked_stack<
-        DenseGraph,
+        decltype(with_hot_and_cold_connection),
         DenseGraphVertex*,
         DenseGraphVertex**,
         OutEdgeBeginFieldTag,
@@ -308,5 +406,5 @@ void dfs_linked_stack(DenseGraph& graph)
         VertexColour::WHITE,
         VertexColour::GREY,
         VertexColour::BLACK
-    >(graph, vertex_begin, vertex_end);
+    >(with_hot_and_cold_connection, vertex_begin, vertex_end);
 }

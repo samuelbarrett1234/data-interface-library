@@ -18,11 +18,16 @@ namespace di
 * (e.g. `int`) of the underlying field.
 */
 template<typename FieldTag, typename DataInterface>
-struct FieldTypeImpl;
+struct FieldTypeImpl {};
 
 
 template<typename FieldTag, typename DataInterface>
 using FieldType = typename FieldTypeImpl<FieldTag, DataInterface>::Type;
+
+
+template<typename FieldTag, typename DataInterface>
+concept has_field_type
+    = requires { typename FieldTypeImpl<FieldTag, DataInterface>::Type; };
 
 
 /*
@@ -111,7 +116,9 @@ concept is_nextable
 */
 template<typename E>
 requires (is_nextable<E>)
-constexpr inline auto next(E e) -> E
+constexpr inline auto next(E e)
+noexcept(noexcept(next_impl(e)))
+-> E
 {
     return next_impl(e);
 }
@@ -130,7 +137,9 @@ concept is_prevable
 */
 template<typename E>
 requires (is_prevable<E>)
-constexpr inline auto prev(E e) -> E
+constexpr inline auto prev(E e)
+noexcept(noexcept(prev_impl(e)))
+-> E
 {
     return prev_impl(e);
 }
@@ -151,7 +160,9 @@ concept is_advanceable
 */
 template<typename E>
 requires (is_advanceable<E>)
-constexpr inline auto advance(E e, std::ptrdiff_t d) -> E
+constexpr inline auto advance(E e, std::ptrdiff_t d)
+noexcept(noexcept(advance_impl(e, d)))
+-> E
 {
     return advance_impl(e, d);
 }
@@ -177,7 +188,9 @@ concept is_diffable
 */
 template<typename E>
 requires (is_diffable<E>)
-constexpr inline auto diff(E e1, E e2) -> std::ptrdiff_t
+constexpr inline auto diff(E e1, E e2)
+noexcept(noexcept(diff_impl(e1, e2)))
+-> std::ptrdiff_t
 {
     return diff_impl(e1, e2);
 }
@@ -199,7 +212,9 @@ concept is_comparable
 */
 template<typename E>
 requires (is_comparable<E>)
-constexpr inline auto less(E e1, E e2) -> bool
+constexpr inline auto less(E e1, E e2)
+noexcept(noexcept(less_impl(e1, e2)))
+-> bool
 {
     return less_impl(e1, e2);
 }
@@ -213,18 +228,21 @@ constexpr inline auto less(E e1, E e2) -> bool
 template<typename EntityType>
 requires (is_comparable<EntityType>)
 inline bool greater(EntityType e1, EntityType e2)
+    noexcept(noexcept(less(e2, e1)))
 {
     return less(e2, e1);
 }
 template<typename EntityType>
 requires (is_comparable<EntityType>)
 inline bool greater_equal(EntityType e1, EntityType e2)
+    noexcept(noexcept(less(e1, e2)))
 {
     return !less(e1, e2);
 }
 template<typename EntityType>
 requires (is_comparable<EntityType>)
 inline bool less_equal(EntityType e1, EntityType e2)
+    noexcept(noexcept(greater(e1, e2)))
 {
     return !greater(e1, e2);
 }
@@ -263,7 +281,7 @@ struct member_pointer_traits;
 template<typename T, typename M>
 struct member_pointer_traits<M T::*>
 {
-    using class_type  = T;
+    using class_type = T;
     using member_type = M;
 };
 
@@ -409,16 +427,16 @@ void store_impl(
 
 template<
     typename UnderlyingPointerDI,
-    typename T,
-    typename NewEntityType,
+    typename FromEntityType,
+    typename ToEntityType,
     typename EntityMapFunctor
 >
 struct EntityMapperDataInterface
 {
     static_assert(
-        std::is_invocable_r_v<EntityMapFunctor, T*, NewEntityType>,
+        std::is_invocable_r_v<ToEntityType, EntityMapFunctor, FromEntityType>,
         "If `EntityMapFunctor` is called with a "
-        "`NewEntityType` it should return a `T*`."
+        "`FromEntityType` it should return a `ToEntityType`."
     );
 
     UnderlyingPointerDI underlying;
@@ -431,45 +449,45 @@ struct EntityMapperDataInterface
 */
 template<
     typename UnderlyingPointerDI,
-    typename T,
-    typename NewEntityType,
+    typename FromEntityType,
+    typename ToEntityType,
     typename EntityMapFunctor,
     typename QueryFieldTag
 >
 struct FieldTypeImpl<
     QueryFieldTag,
-    EntityMapperDataInterface<UnderlyingPointerDI, T, NewEntityType, EntityMapFunctor>
+    EntityMapperDataInterface<UnderlyingPointerDI, FromEntityType, ToEntityType, EntityMapFunctor>
 >
 {
     using Type = FieldType<QueryFieldTag, UnderlyingPointerDI>;
 };
 template<
     typename UnderlyingPointerDI,
-    typename T,
-    typename NewEntityType,
+    typename FromEntityType,
+    typename ToEntityType,
     typename EntityMapFunctor,
     typename QueryFieldTag
 >
-requires (is_loadable<QueryFieldTag, UnderlyingPointerDI, T*>)
+requires (is_loadable<QueryFieldTag, UnderlyingPointerDI, ToEntityType>)
 auto load_impl(
-    const EntityMapperDataInterface<UnderlyingPointerDI, T, NewEntityType, EntityMapFunctor>& di,
-    NewEntityType e1,
+    const EntityMapperDataInterface<UnderlyingPointerDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
+    FromEntityType e1,
     QueryFieldTag tag)
 -> FieldType<QueryFieldTag, UnderlyingPointerDI>
 {
-    T* const e2 = di.entity_map(e1);
+    const ToEntityType e2 = di.entity_map(e1);
     return load_impl(di.underlying, e2, tag);
 }
 template<
     typename UnderlyingPointerDI,
-    typename T,
-    typename NewEntityType,
+    typename FromEntityType,
+    typename ToEntityType,
     typename EntityMapFunctor,
     typename QueryEntityType,
     typename QueryFieldTag
 >
 auto load_impl(
-    const EntityMapperDataInterface<UnderlyingPointerDI, T, NewEntityType, EntityMapFunctor>& di,
+    const EntityMapperDataInterface<UnderlyingPointerDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
     QueryEntityType e,
     QueryFieldTag tag)
 -> FieldType<QueryFieldTag, UnderlyingPointerDI>
@@ -478,31 +496,31 @@ auto load_impl(
 }
 template<
     typename UnderlyingPointerDI,
-    typename T,
-    typename NewEntityType,
+    typename FromEntityType,
+    typename ToEntityType,
     typename EntityMapFunctor,
     typename QueryFieldTag
 >
-requires (is_storeable<QueryFieldTag, UnderlyingPointerDI, T*>)
+requires (is_storeable<QueryFieldTag, UnderlyingPointerDI, ToEntityType>)
 auto store_impl(
-    const EntityMapperDataInterface<UnderlyingPointerDI, T, NewEntityType, EntityMapFunctor>& di,
-    NewEntityType e1,
-    FieldType<QueryFieldTag, EntityMapperDataInterface<UnderlyingPointerDI, T, NewEntityType, EntityMapFunctor>> v,
+    const EntityMapperDataInterface<UnderlyingPointerDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
+    FromEntityType e1,
+    FieldType<QueryFieldTag, UnderlyingPointerDI> v,
     QueryFieldTag tag)
 {
-    T* const e2 = di.entity_map(e1);
+    const ToEntityType e2 = di.entity_map(e1);
     return store_impl(di.underlying, e2, v, tag);
 }
 template<
     typename UnderlyingPointerDI,
-    typename T,
-    typename NewEntityType,
+    typename FromEntityType,
+    typename ToEntityType,
     typename EntityMapFunctor,
     typename QueryEntityType,
     typename QueryFieldTag
 >
 auto store_impl(
-    const EntityMapperDataInterface<UnderlyingPointerDI, T, NewEntityType, EntityMapFunctor>& di,
+    const EntityMapperDataInterface<UnderlyingPointerDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
     QueryEntityType e,
     FieldType<QueryFieldTag, UnderlyingPointerDI> v,
     QueryFieldTag tag)
@@ -529,37 +547,39 @@ struct DisjointUnionDI
 };
 
 
+// Case 1: both DIs provide a type
 template<typename QueryFieldTag, typename DI1, typename DI2>
+requires ( has_field_type<QueryFieldTag, DI1> && has_field_type<QueryFieldTag, DI2> )
 struct FieldTypeImpl<QueryFieldTag, DisjointUnionDI<DI1, DI2>>
 {
-private:
-    static constexpr bool has1
-        = requires { typename FieldType<QueryFieldTag, DI1>; };
-
-    static constexpr bool has2
-        = requires { typename FieldType<QueryFieldTag, DI2>; };
-
     static_assert(
-        has1 || has2,
-        "Could not deduce type of this field based "
-        "on underlyings."
-    );
-    static_assert(
-        !(has1 && has2)
-        || std::is_same_v<
-            FieldType<QueryFieldTag, DI1>,
-            FieldType<QueryFieldTag, DI2>
+        std::is_same_v<
+            typename FieldType<QueryFieldTag, DI1>,
+            typename FieldType<QueryFieldTag, DI2>
         >,
         "If both underlying DIs have a field type for "
         "this field, it must be consistent."
     );
 
-public:
-    using Type = std::conditional_t<
-        has1,
-        FieldType<QueryFieldTag, DI1>,
-        FieldType<QueryFieldTag, DI2>
-    >;
+    using Type = FieldType<QueryFieldTag, DI1>;
+};
+
+
+// Case 2: get type from DI1
+template<typename QueryFieldTag, typename DI1, typename DI2>
+requires ( has_field_type<QueryFieldTag, DI1> && !has_field_type<QueryFieldTag, DI2> )
+struct FieldTypeImpl<QueryFieldTag, DisjointUnionDI<DI1, DI2>>
+{
+    using Type = FieldType<QueryFieldTag, DI1>;
+};
+
+
+// Case 3: get type from DI2
+template<typename QueryFieldTag, typename DI1, typename DI2>
+requires ( !has_field_type<QueryFieldTag, DI1> && has_field_type<QueryFieldTag, DI2> )
+struct FieldTypeImpl<QueryFieldTag, DisjointUnionDI<DI1, DI2>>
+{
+    using Type = FieldType<QueryFieldTag, DI2>;
 };
 
 
@@ -1227,15 +1247,15 @@ auto make_with_pointer_to_member_data_interface(
 
 
 template<
-    typename T,
-    typename NewEntityType,
+    typename FromEntityType,
+    typename ToEntityType,
     typename UnderlyingDI,
     typename EntityMapFunctor
 >
 auto make_entity_mapper_data_interface(
     UnderlyingDI underlying, EntityMapFunctor entity_map)
 {
-    return EntityMapperDataInterface<UnderlyingDI, T, NewEntityType, EntityMapFunctor>{
+    return EntityMapperDataInterface<UnderlyingDI, FromEntityType, ToEntityType, EntityMapFunctor>{
         .underlying = underlying,
         .entity_map = entity_map
     };
