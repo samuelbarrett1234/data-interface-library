@@ -21,8 +21,8 @@ namespace graph
 template<
     typename DataInterface,
     /* what are the entities? */
-    typename VertexEntityTag,
-    typename EdgeEntityTag,
+    typename VertexEntityType,
+    typename EdgeEntityType,
     /* what are the fields? */
     typename OutEdgeBeginFieldTag,
     typename OutEdgeEndFieldTag,
@@ -37,16 +37,14 @@ template<
 >
 void dfs_linked_stack(
         DataInterface& data_interface,
-        const EntityType<VertexEntityTag, DataInterface> vertex_begin,
-        const EntityType<VertexEntityTag, DataInterface> vertex_end)
+        const VertexEntityType vertex_begin,
+        const VertexEntityType vertex_end)
     noexcept
 {
     /*
     * Type aliases for brevity.
     */
     using ColourType = FieldType<ColourFieldTag, DataInterface>;
-    using VertexType = EntityType<VertexEntityTag, DataInterface>;
-    using EdgeType = EntityType<EdgeEntityTag, DataInterface>;
 
     /*
     * Enforce our requirements on the data.
@@ -54,48 +52,48 @@ void dfs_linked_stack(
     * be asserted here.
     */
     static_assert(
-        is_loadable<ColourFieldTag, VertexEntityTag, DataInterface>,
+        is_loadable<ColourFieldTag, DataInterface, VertexEntityType>,
         "Must be able to read vertex colour from vertex entity."
     );
     static_assert(
-        is_storeable<ColourFieldTag, VertexEntityTag, DataInterface>,
+        is_storeable<ColourFieldTag, DataInterface, VertexEntityType>,
         "Must be able to write vertex colour to vertex entity."
     );
     static_assert(
-        is_nextable<VertexEntityTag, DataInterface>,
+        is_nextable<VertexEntityType>,
         "Must be able to increment vertex entities."
     );
     static_assert(
-        is_nextable<EdgeEntityTag, DataInterface>,
+        is_nextable<EdgeEntityType>,
         "Must be able to increment edge entities."
     );
     static_assert(
-        is_loadable<OutEdgeBeginFieldTag, VertexEntityTag, DataInterface>,
+        is_loadable<OutEdgeBeginFieldTag, DataInterface, VertexEntityType>,
         "Must be able to read out-edge begin field "
         "from vertex entities."
     );
     static_assert(
-        is_loadable<OutEdgeEndFieldTag, VertexEntityTag, DataInterface>,
+        is_loadable<OutEdgeEndFieldTag, DataInterface, VertexEntityType>,
         "Must be able to read out-edge end field "
         "from vertex entities."
     );
     static_assert(
-        is_loadable<EdgeTargetFieldTag, EdgeEntityTag, DataInterface>,
+        is_loadable<EdgeTargetFieldTag, DataInterface, EdgeEntityType>,
         "Must be able to read target field "
         "from edge entities."
     );
     static_assert(
-        is_storeable<DfsTreeParentFieldTag, VertexEntityTag, DataInterface>,
+        is_storeable<DfsTreeParentFieldTag, DataInterface, VertexEntityType>,
         "Must be able to store DFS tree parent "
         "field to vertex entities."
     );
     static_assert(
-        is_loadable<StackNextFieldTag, VertexEntityTag, DataInterface>,
+        is_loadable<StackNextFieldTag, DataInterface, VertexEntityType>,
         "Must be able to load the stack next field "
         "from vertex entities."
     );
     static_assert(
-        is_storeable<StackNextFieldTag, VertexEntityTag, DataInterface>,
+        is_storeable<StackNextFieldTag, DataInterface, VertexEntityType>,
         "Must be able to store the stack next field "
         "to vertex entities."
     );
@@ -104,7 +102,7 @@ void dfs_linked_stack(
             FieldType<
                 OutEdgeBeginFieldTag,
                 DataInterface>,
-            EdgeType>,
+            EdgeEntityType>,
         "Out-edge-begin field must be edge "
         "type."
     );
@@ -113,7 +111,7 @@ void dfs_linked_stack(
             FieldType<
                 OutEdgeEndFieldTag,
                 DataInterface>,
-            EdgeType>,
+            EdgeEntityType>,
         "Out-edge-end field must be edge "
         "type."
     );
@@ -122,7 +120,7 @@ void dfs_linked_stack(
             FieldType<
                 EdgeTargetFieldTag,
                 DataInterface>,
-            VertexType>,
+            VertexEntityType>,
         "Edge target field must be vertex "
         "type."
     );
@@ -131,7 +129,7 @@ void dfs_linked_stack(
             FieldType<
                 DfsTreeParentFieldTag,
                 DataInterface>,
-            VertexType>,
+            VertexEntityType>,
         "DFS tree parent field must be vertex "
         "type."
     );
@@ -140,7 +138,7 @@ void dfs_linked_stack(
             FieldType<
                 StackNextFieldTag,
                 DataInterface>,
-            VertexType>,
+            VertexEntityType>,
         "The stack next field must be vertex "
         "type."
     );
@@ -148,11 +146,11 @@ void dfs_linked_stack(
     /*
     * Reset all colours.
     */
-    for (VertexType v = vertex_begin;
+    for (VertexEntityType v = vertex_begin;
         v != vertex_end;
-        v = next<VertexEntityTag>(data_interface, v))
+        v = next(v))
     {
-        store<ColourFieldTag, VertexEntityTag>(
+        store<ColourFieldTag>(
             data_interface, v, UNEXPLORED);
     }
 
@@ -160,12 +158,12 @@ void dfs_linked_stack(
     * Loop through vertices in the
     * graph.
     */
-    for (VertexType root = vertex_begin;
+    for (VertexEntityType root = vertex_begin;
         root != vertex_end;
-        root = next<VertexEntityTag>(data_interface, root))
+        root = next(root))
     {
         const ColourType root_old_colour
-            = load<ColourFieldTag, VertexEntityTag>(
+            = load<ColourFieldTag>(
                 data_interface, root);
 
         /*
@@ -183,24 +181,24 @@ void dfs_linked_stack(
         * Do the same with the stack root
         * so that it wraps back around.
         */
-        store<DfsTreeParentFieldTag, VertexEntityTag>(
+        store<DfsTreeParentFieldTag>(
             data_interface, root, root);
-        store<StackNextFieldTag, VertexEntityTag>(
+        store<StackNextFieldTag>(
             data_interface, root, root);
 
         /*
         * Begin depth-first search from this
         * vertex.
         */
-        VertexType stack = root;
-        store<ColourFieldTag, VertexEntityTag>(
+        VertexEntityType stack = root;
+        store<ColourFieldTag>(
             data_interface, stack, EXPLORING);
 
-        while (load<ColourFieldTag, VertexEntityTag>(
+        while (load<ColourFieldTag>(
                 data_interface, stack)
             != EXPLORED)
         {
-            const VertexType source = stack;
+            const VertexEntityType source = stack;
 
             /*
             * Expected the stack to consist of precisely
@@ -208,7 +206,7 @@ void dfs_linked_stack(
             */
             #ifndef NDEBUG
             const ColourType source_colour
-                = load<ColourFieldTag, VertexEntityTag>(
+                = load<ColourFieldTag>(
                     data_interface, source);
             assert(
                 source_colour == EXPLORING
@@ -218,29 +216,29 @@ void dfs_linked_stack(
             /*
             * Pop from stack.
             */
-            stack = load<StackNextFieldTag, VertexEntityTag>(
+            stack = load<StackNextFieldTag>(
                 data_interface, stack);
 
-            const EdgeType
-                out_begin = load<OutEdgeBeginFieldTag, VertexEntityTag>(
+            const EdgeEntityType
+                out_begin = load<OutEdgeBeginFieldTag>(
                     data_interface, stack),
-                out_end = load<OutEdgeEndFieldTag, VertexEntityTag>(
+                out_end = load<OutEdgeEndFieldTag>(
                     data_interface, stack);
 
             /*
             * Loop through the out-edges of
             * this vertex.
             */
-            for (EdgeType e = out_begin;
+            for (EdgeEntityType e = out_begin;
                 e != out_end;
-                e = next<EdgeEntityTag>(data_interface, e))
+                e = next(e))
             {
-                const VertexType target
-                    = load<EdgeTargetFieldTag, EdgeEntityTag>(
+                const VertexEntityType target
+                    = load<EdgeTargetFieldTag>(
                         data_interface, e);
 
                 const ColourType old_colour
-                    = load<ColourFieldTag, VertexEntityTag>(
+                    = load<ColourFieldTag>(
                         data_interface, target);
 
                 if (old_colour != UNEXPLORED)
@@ -256,11 +254,11 @@ void dfs_linked_stack(
                 * so the caller can ignore it if they wish,
                 * making this write a no-op.
                 */
-                store<ColourFieldTag, VertexEntityTag>(
+                store<ColourFieldTag>(
                     data_interface, target, EXPLORING);
-                store<DfsTreeParentFieldTag, VertexEntityTag>(
+                store<DfsTreeParentFieldTag>(
                     data_interface, target, source);
-                store<StackNextFieldTag, VertexEntityTag>(
+                store<StackNextFieldTag>(
                     data_interface, target, stack);
                 stack = target;
             }

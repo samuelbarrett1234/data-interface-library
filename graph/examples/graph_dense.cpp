@@ -65,8 +65,6 @@ struct DenseGraph
 };
 
 
-struct DenseVertexTag {};
-struct DenseEdgeTag {};
 struct OutEdgeBeginFieldTag {};
 struct OutEdgeEndFieldTag {};
 struct VertexColourTag {};
@@ -75,19 +73,8 @@ struct VertexStackTag {};
 struct DenseEdgeTargetTag {};
 
 
-namespace di
-{
-template<>
-struct EntityTypeImpl<DenseVertexTag, DenseGraph>
-{
-    using Type = DenseGraphVertex*;
-};
-template<>
-inline EntityType<DenseVertexTag, DenseGraph>
-    next<DenseVertexTag, DenseGraph>(
-        const DenseGraph&,
-        EntityType<DenseVertexTag, DenseGraph> vertex)
-    noexcept
+inline DenseGraphVertex* next_impl(
+    DenseGraphVertex* const vertex)
 {
     return std::launder(
         reinterpret_cast<
@@ -97,13 +84,9 @@ inline EntityType<DenseVertexTag, DenseGraph>
                     + sizeof(DenseGraphVertex*)
                         * vertex->outdegree));
 }
-template<>
-inline std::ptrdiff_t
-    difference<DenseVertexTag, DenseGraph>(
-        const DenseGraph&,
-        const EntityType<DenseVertexTag, DenseGraph> v1,
-        const EntityType<DenseVertexTag, DenseGraph> v2)
-    noexcept
+inline std::ptrdiff_t diff_impl(
+    DenseGraphVertex* const v1,
+    DenseGraphVertex* const v2)
 {
     /*
     * This is an interesting example of
@@ -121,13 +104,9 @@ inline std::ptrdiff_t
 
     return j - i;
 }
-template<>
-inline bool
-    less<DenseVertexTag, DenseGraph>(
-        const DenseGraph&,
-        const EntityType<DenseVertexTag, DenseGraph> v1,
-        const EntityType<DenseVertexTag, DenseGraph> v2)
-    noexcept
+inline std::ptrdiff_t less_impl(
+    DenseGraphVertex* const v1,
+    DenseGraphVertex* const v2)
 {
     /*
     * This is an interesting example of
@@ -141,61 +120,38 @@ inline bool
     */
     return v1->index < v2->index;
 }
-
-
-template<>
-struct EntityTypeImpl<DenseEdgeTag, DenseGraph>
-{
-    using Type = DenseGraphVertex**;
-};
-template<>
-inline EntityType<DenseEdgeTag, DenseGraph>
-    next<DenseEdgeTag, DenseGraph>(
-        const DenseGraph&,
-        EntityType<DenseEdgeTag, DenseGraph> edge)
-    noexcept
+inline DenseGraphVertex** next_impl(
+    DenseGraphVertex** const edge)
 {
     return edge + 1;
 }
-template<>
-inline EntityType<DenseEdgeTag, DenseGraph>
-    prev<DenseEdgeTag, DenseGraph>(
-        const DenseGraph&,
-        EntityType<DenseEdgeTag, DenseGraph> edge)
-    noexcept
+inline DenseGraphVertex** prev_impl(
+    DenseGraphVertex** const edge)
 {
     return edge - 1;
 }
-template<>
-inline EntityType<DenseEdgeTag, DenseGraph>
-    advance<DenseEdgeTag, DenseGraph>(
-        const DenseGraph&,
-        EntityType<DenseEdgeTag, DenseGraph> edge,
-        const std::ptrdiff_t delta)
-    noexcept
+inline DenseGraphVertex** advance_impl(
+    DenseGraphVertex** const edge,
+    const std::ptrdiff_t d)
 {
-    return edge + delta;
+    return edge + d;
 }
-template<>
-inline std::ptrdiff_t
-    difference<DenseEdgeTag, DenseGraph>(
-        const DenseGraph&,
-        const EntityType<DenseEdgeTag, DenseGraph> e1,
-        const EntityType<DenseEdgeTag, DenseGraph> e2)
-    noexcept
+inline std::ptrdiff_t diff_impl(
+    DenseGraphVertex** const e1,
+    DenseGraphVertex** const e2)
 {
     return e2 - e1;
 }
-template<>
-inline bool
-    less<DenseEdgeTag, DenseGraph>(
-        const DenseGraph&,
-        const EntityType<DenseEdgeTag, DenseGraph> e1,
-        const EntityType<DenseEdgeTag, DenseGraph> e2)
-    noexcept
+inline bool less_impl(
+    DenseGraphVertex** const e1,
+    DenseGraphVertex** const e2)
 {
     return e1 < e2;
 }
+
+
+namespace di
+{
 
 
 template<>
@@ -209,10 +165,34 @@ struct FieldTypeImpl<OutEdgeEndFieldTag, DenseGraph>
     using Type = DenseGraphVertex**;
 };
 template<>
-inline FieldType<OutEdgeBeginFieldTag, DenseGraph>
-    load<OutEdgeBeginFieldTag, DenseVertexTag, DenseGraph>(
+struct FieldTypeImpl<VertexColourTag, DenseGraph>
+{
+    using Type = VertexColour;
+};
+template<>
+struct FieldTypeImpl<VertexParentTag, DenseGraph>
+{
+    using Type = DenseGraphVertex*;
+};
+template<>
+struct FieldTypeImpl<VertexStackTag, DenseGraph>
+{
+    using Type = DenseGraphVertex*;
+};
+template<>
+struct FieldTypeImpl<DenseEdgeTargetTag, DenseGraph>
+{
+    using Type = DenseGraphVertex*;
+};
+
+
+}  // namespace di
+
+
+inline di::FieldType<OutEdgeBeginFieldTag, DenseGraph> load_impl(
         const DenseGraph&,
-        EntityType<DenseVertexTag, DenseGraph> vertex)
+        DenseGraphVertex* const vertex,
+        OutEdgeBeginFieldTag)
     noexcept
 {
     return std::launder(
@@ -221,134 +201,104 @@ inline FieldType<OutEdgeBeginFieldTag, DenseGraph>
                 reinterpret_cast<std::byte*>(vertex)
                     + sizeof(DenseGraphVertex)));
 }
-template<>
-inline FieldType<OutEdgeEndFieldTag, DenseGraph>
-    load<OutEdgeEndFieldTag, DenseVertexTag, DenseGraph>(
-        const DenseGraph& data_interface,
-        EntityType<DenseVertexTag, DenseGraph> vertex)
+
+
+inline di::FieldType<OutEdgeEndFieldTag, DenseGraph> load_impl(
+        const DenseGraph& graph,
+        DenseGraphVertex* const vertex,
+        OutEdgeEndFieldTag)
     noexcept
 {
-    return load<OutEdgeBeginFieldTag, DenseVertexTag, DenseGraph>(
-        data_interface, vertex)
-            + vertex->outdegree;
+    return di::load<OutEdgeBeginFieldTag>(graph, vertex)
+        + vertex->outdegree;
 }
 
 
-template<>
-struct FieldTypeImpl<VertexColourTag, DenseGraph>
-{
-    using Type = VertexColour;
-};
-template<>
-inline FieldType<VertexColourTag, DenseGraph>
-    load<VertexColourTag, DenseVertexTag, DenseGraph>(
+inline di::FieldType<VertexColourTag, DenseGraph> load_impl(
         const DenseGraph& graph,
-        EntityType<DenseVertexTag, DenseGraph> vertex)
+        DenseGraphVertex* const vertex,
+        VertexColourTag)
     noexcept
 {
     return graph.colds[vertex->index].colour;
 }
-template<>
-inline void
-    store<VertexColourTag, DenseVertexTag, DenseGraph>(
+inline void store_impl(
         DenseGraph& graph,
-        EntityType<DenseVertexTag, DenseGraph> vertex,
-        FieldType<VertexColourTag, DenseGraph> colour)
+        DenseGraphVertex* const vertex,
+        const di::FieldType<VertexColourTag, DenseGraph> colour,
+        VertexColourTag)
     noexcept
 {
     graph.colds[vertex->index].colour = colour;
 }
 
 
-template<>
-struct FieldTypeImpl<VertexParentTag, DenseGraph>
-{
-    using Type = DenseGraphVertex*;
-};
-template<>
-inline FieldType<VertexParentTag, DenseGraph>
-    load<VertexParentTag, DenseVertexTag, DenseGraph>(
+inline di::FieldType<VertexParentTag, DenseGraph> load_impl(
         const DenseGraph& graph,
-        EntityType<DenseVertexTag, DenseGraph> vertex)
+        DenseGraphVertex* const vertex,
+        VertexParentTag)
     noexcept
 {
     return graph.colds[vertex->index].parent;
 }
-template<>
-inline void
-    store<VertexParentTag, DenseVertexTag, DenseGraph>(
+inline void store_impl(
         DenseGraph& graph,
-        EntityType<DenseVertexTag, DenseGraph> vertex,
-        FieldType<VertexParentTag, DenseGraph> parent)
+        DenseGraphVertex* const vertex,
+        const di::FieldType<VertexParentTag, DenseGraph> parent,
+        VertexParentTag)
     noexcept
 {
     graph.colds[vertex->index].parent = parent;
 }
 
 
-template<>
-struct FieldTypeImpl<VertexStackTag, DenseGraph>
-{
-    using Type = DenseGraphVertex*;
-};
-template<>
-inline FieldType<VertexStackTag, DenseGraph>
-    load<VertexStackTag, DenseVertexTag, DenseGraph>(
+inline di::FieldType<VertexStackTag, DenseGraph> load_impl(
         const DenseGraph& graph,
-        EntityType<DenseVertexTag, DenseGraph> vertex)
+        DenseGraphVertex* const vertex,
+        VertexStackTag)
     noexcept
 {
     return graph.colds[vertex->index].stack;
 }
-template<>
-inline void
-    store<VertexStackTag, DenseVertexTag, DenseGraph>(
+inline void store_impl(
         DenseGraph& graph,
-        EntityType<DenseVertexTag, DenseGraph> vertex,
-        FieldType<VertexStackTag, DenseGraph> stack)
+        DenseGraphVertex* const vertex,
+        const di::FieldType<VertexStackTag, DenseGraph> stack,
+        VertexStackTag)
     noexcept
 {
     graph.colds[vertex->index].stack = stack;
 }
 
 
-template<>
-struct FieldTypeImpl<DenseEdgeTargetTag, DenseGraph>
-{
-    using Type = DenseGraphVertex*;
-};
-template<>
-inline FieldType<DenseEdgeTargetTag, DenseGraph>
-    load<DenseEdgeTargetTag, DenseEdgeTag, DenseGraph>(
+inline di::FieldType<DenseEdgeTargetTag, DenseGraph> load_impl(
         const DenseGraph&,
-        EntityType<DenseEdgeTag, DenseGraph> edge)
+        DenseGraphVertex** edge,
+        DenseEdgeTargetTag)
     noexcept
 {
     return *edge;
 }
 
 
-}  // namespace di
-
-
-void dfs_linked_stack(DenseGraph& G)
+void dfs_linked_stack(DenseGraph& graph)
 {
     DenseGraphVertex* const vertex_begin
         = std::launder(
             reinterpret_cast<
                 DenseGraphVertex*>(
-                    G.memory_begin));
+                    graph.memory_begin));
 
     DenseGraphVertex* const vertex_end
         = std::launder(
             reinterpret_cast<
                 DenseGraphVertex*>(
-                    G.memory_logical_end));
+                    graph.memory_logical_end));
 
     di::graph::dfs_linked_stack<
         DenseGraph,
-        DenseVertexTag,
-        DenseEdgeTag,
+        DenseGraphVertex*,
+        DenseGraphVertex**,
         OutEdgeBeginFieldTag,
         OutEdgeEndFieldTag,
         DenseEdgeTargetTag,
@@ -358,5 +308,5 @@ void dfs_linked_stack(DenseGraph& G)
         VertexColour::WHITE,
         VertexColour::GREY,
         VertexColour::BLACK
-    >(G, vertex_begin, vertex_end);
+    >(graph, vertex_begin, vertex_end);
 }

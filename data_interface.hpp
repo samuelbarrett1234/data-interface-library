@@ -58,10 +58,6 @@ noexcept(
     noexcept(load_impl(di, e, FieldTag{})))
 -> FieldType<FieldTag, DataInterface>
 {
-    static_assert(
-        sizeof(FieldTag) == 0,
-        "Expected tag structs to be empty."
-    );
     return load_impl(di, e, FieldTag{});
 }
 
@@ -98,10 +94,6 @@ constexpr inline void store(
 noexcept(
     noexcept(store_impl(di, e, value, FieldTag{})))
 {
-    static_assert(
-        sizeof(FieldTag) == 0,
-        "Expected tag structs to be empty."
-    );
     store_impl(di, e, value, FieldTag{});
 }
 
