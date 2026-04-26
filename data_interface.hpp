@@ -12,36 +12,27 @@ namespace di
 
 
 /*
-* Users should specialise this struct
-* for their fields, providing a nested
-* `Type`, representing the actual type
-* (e.g. `int`) of the underlying field.
+* Users' field tag types should have a nested
+* `Type` specifier which says what the type is
+* that _actually_ represents a value for that
+* field.
 */
-template<typename FieldTag, typename DataInterface>
-struct FieldTypeImpl {};
-
-
-template<typename FieldTag, typename DataInterface>
-using FieldType = typename FieldTypeImpl<FieldTag, DataInterface>::Type;
-
-
-template<typename FieldTag, typename DataInterface>
-concept has_field_type
-    = requires { typename FieldTypeImpl<FieldTag, DataInterface>::Type; };
+template<typename FieldTag>
+using FieldType = typename FieldTag::Type;
 
 
 /*
 * Concept: a field is loadable if an unqualified
 * call `load_impl(di, entity, FieldTag{})` is
 * valid via ADL and returns exactly
-* `FieldType<FieldTag, DataInterface>`.
+* `FieldType<FieldTag>`.
 */
 template<typename FieldTag, typename DataInterface, typename Entity>
 concept is_loadable
     = requires(const DataInterface& di, Entity e)
 {
     { load_impl(di, e, FieldTag{}) }
-        -> std::same_as<FieldType<FieldTag, DataInterface>>;
+        -> std::same_as<FieldType<FieldTag>>;
 };
 
 
@@ -61,7 +52,7 @@ constexpr inline auto load(
     const DataInterface& di, Entity e)
 noexcept(
     noexcept(load_impl(di, e, FieldTag{})))
--> FieldType<FieldTag, DataInterface>
+-> FieldType<FieldTag>
 {
     return load_impl(di, e, FieldTag{});
 }
@@ -74,7 +65,7 @@ noexcept(
 */
 template<typename FieldTag, typename DataInterface, typename Entity>
 concept is_storeable
-    = requires(DataInterface& di, Entity e, FieldType<FieldTag, DataInterface> v)
+    = requires(DataInterface& di, Entity e, FieldType<FieldTag> v)
 {
     { store_impl(di, e, v, FieldTag{}) } -> std::same_as<void>;
 };
@@ -95,7 +86,7 @@ requires (
 constexpr inline void store(
     DataInterface& di,
     Entity e,
-    FieldType<FieldTag, DataInterface> value)
+    FieldType<FieldTag> value)
 noexcept(
     noexcept(store_impl(di, e, value, FieldTag{})))
 {
@@ -276,14 +267,6 @@ inline bool less_equal(EntityType e1, EntityType e2)
 * >;                                     *
 * ```                                    *
 *****************************************/
-template<typename>
-struct member_pointer_traits;
-template<typename T, typename M>
-struct member_pointer_traits<M T::*>
-{
-    using class_type = T;
-    using member_type = M;
-};
 
 template<
     typename UnderlyingDI,
@@ -296,38 +279,6 @@ struct MemberFieldDI
     UnderlyingDI underlying;
 };
 
-// Case 1: the new field this wrapper introduces
-template<
-    typename UnderlyingDI,
-    typename T,
-    auto member_ptr,
-    typename NewFieldTag
->
-struct FieldTypeImpl<
-    NewFieldTag,
-    MemberFieldDI<UnderlyingDI, T, member_ptr, NewFieldTag>
->
-{
-    using Type
-        = typename member_pointer_traits<decltype(member_ptr)>::member_type;
-};
-
-// Case 2: all other fields forward to underlying
-template<
-    typename UnderlyingDI,
-    typename T,
-    auto member_ptr,
-    typename NewFieldTag,
-    typename QueryFieldTag
->
-struct FieldTypeImpl<
-    QueryFieldTag,
-    MemberFieldDI<UnderlyingDI, T, member_ptr, NewFieldTag>
->
-{
-    using Type = FieldType<QueryFieldTag, UnderlyingDI>;
-};
-
 template<
     typename UnderlyingDI,
     typename T,
@@ -338,10 +289,7 @@ auto load_impl(
     const MemberFieldDI<UnderlyingDI, T, member_ptr, NewFieldTag>&,
     T* obj,
     NewFieldTag)
--> FieldType<
-        NewFieldTag,
-        MemberFieldDI<UnderlyingDI, T, member_ptr, NewFieldTag>
-   >
+-> FieldType<NewFieldTag>
 {
     return obj->*member_ptr;
 }
@@ -353,21 +301,13 @@ template<
     typename QueryEntityType,
     typename QueryFieldTag
 >
+requires (is_loadable<QueryFieldTag, UnderlyingDI, QueryEntityType>)
 auto load_impl(
     const MemberFieldDI<UnderlyingDI, T, member_ptr, NewFieldTag>& di,
     QueryEntityType e,
     QueryFieldTag tag)
--> FieldType<QueryFieldTag, UnderlyingDI>
+-> FieldType<QueryFieldTag>
 {
-    static_assert(
-        std::is_same_v<
-            FieldType<QueryFieldTag, MemberFieldDI<UnderlyingDI, T, member_ptr, NewFieldTag>>,
-            FieldType<QueryFieldTag, UnderlyingDI>
-        >,
-        "Oops, this field had an inconsistent type "
-        "between the wrapper and the wrapped data "
-        "interfaces."
-    );
     return load_impl(di.underlying, e, tag);
 }
 template<
@@ -379,7 +319,7 @@ template<
 void store_impl(
     MemberFieldDI<UnderlyingDI, T, member_ptr, NewFieldTag>&,
     T* obj,
-    FieldType<NewFieldTag, MemberFieldDI<UnderlyingDI, T, member_ptr, NewFieldTag>> value,
+    FieldType<NewFieldTag> value,
     NewFieldTag)
 {
     obj->*member_ptr = value;
@@ -392,21 +332,13 @@ template<
     typename QueryEntityType,
     typename QueryFieldTag
 >
+requires (is_storeable<QueryFieldTag, UnderlyingDI, QueryEntityType>)
 void store_impl(
     MemberFieldDI<UnderlyingDI, T, member_ptr, NewFieldTag>& di,
     QueryEntityType e,
-    FieldType<QueryFieldTag, UnderlyingDI> value,
+    FieldType<QueryFieldTag> value,
     QueryFieldTag tag)
 {
-    static_assert(
-        std::is_same_v<
-            FieldType<QueryFieldTag, MemberFieldDI<UnderlyingDI, T, member_ptr, NewFieldTag>>,
-            FieldType<QueryFieldTag, UnderlyingDI>
-        >,
-        "Oops, this field had an inconsistent type "
-        "between the wrapper and the wrapped data "
-        "interfaces."
-    );
     store_impl(di.underlying, e, value, tag);
 }
 
@@ -426,7 +358,7 @@ void store_impl(
 
 
 template<
-    typename UnderlyingPointerDI,
+    typename UnderlyingDI,
     typename FromEntityType,
     typename ToEntityType,
     typename EntityMapFunctor
@@ -439,90 +371,75 @@ struct EntityMapperDataInterface
         "`FromEntityType` it should return a `ToEntityType`."
     );
 
-    UnderlyingPointerDI underlying;
+    UnderlyingDI underlying;
     EntityMapFunctor entity_map;
 };
 
 
-/*
-* Dispatch to underlying.
-*/
 template<
-    typename UnderlyingPointerDI,
+    typename UnderlyingDI,
     typename FromEntityType,
     typename ToEntityType,
     typename EntityMapFunctor,
     typename QueryFieldTag
 >
-struct FieldTypeImpl<
-    QueryFieldTag,
-    EntityMapperDataInterface<UnderlyingPointerDI, FromEntityType, ToEntityType, EntityMapFunctor>
->
-{
-    using Type = FieldType<QueryFieldTag, UnderlyingPointerDI>;
-};
-template<
-    typename UnderlyingPointerDI,
-    typename FromEntityType,
-    typename ToEntityType,
-    typename EntityMapFunctor,
-    typename QueryFieldTag
->
-requires (is_loadable<QueryFieldTag, UnderlyingPointerDI, ToEntityType>)
+requires (is_loadable<QueryFieldTag, UnderlyingDI, ToEntityType>)
 auto load_impl(
-    const EntityMapperDataInterface<UnderlyingPointerDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
+    const EntityMapperDataInterface<UnderlyingDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
     FromEntityType e1,
     QueryFieldTag tag)
--> FieldType<QueryFieldTag, UnderlyingPointerDI>
+-> FieldType<QueryFieldTag>
 {
     const ToEntityType e2 = di.entity_map(e1);
     return load_impl(di.underlying, e2, tag);
 }
 template<
-    typename UnderlyingPointerDI,
+    typename UnderlyingDI,
     typename FromEntityType,
     typename ToEntityType,
     typename EntityMapFunctor,
     typename QueryEntityType,
     typename QueryFieldTag
 >
+requires (is_loadable<QueryFieldTag, UnderlyingDI, QueryEntityType>)
 auto load_impl(
-    const EntityMapperDataInterface<UnderlyingPointerDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
+    const EntityMapperDataInterface<UnderlyingDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
     QueryEntityType e,
     QueryFieldTag tag)
--> FieldType<QueryFieldTag, UnderlyingPointerDI>
+-> FieldType<QueryFieldTag>
 {
     return load_impl(di.underlying, e, tag);
 }
 template<
-    typename UnderlyingPointerDI,
+    typename UnderlyingDI,
     typename FromEntityType,
     typename ToEntityType,
     typename EntityMapFunctor,
     typename QueryFieldTag
 >
-requires (is_storeable<QueryFieldTag, UnderlyingPointerDI, ToEntityType>)
+requires (is_storeable<QueryFieldTag, UnderlyingDI, ToEntityType>)
 auto store_impl(
-    const EntityMapperDataInterface<UnderlyingPointerDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
+    EntityMapperDataInterface<UnderlyingDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
     FromEntityType e1,
-    FieldType<QueryFieldTag, UnderlyingPointerDI> v,
+    FieldType<QueryFieldTag> v,
     QueryFieldTag tag)
 {
     const ToEntityType e2 = di.entity_map(e1);
     return store_impl(di.underlying, e2, v, tag);
 }
 template<
-    typename UnderlyingPointerDI,
+    typename UnderlyingDI,
     typename FromEntityType,
     typename ToEntityType,
     typename EntityMapFunctor,
     typename QueryEntityType,
     typename QueryFieldTag
 >
+requires (is_storeable<QueryFieldTag, UnderlyingDI, QueryEntityType>)
 auto store_impl(
-    const EntityMapperDataInterface<UnderlyingPointerDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
+    EntityMapperDataInterface<UnderlyingDI, FromEntityType, ToEntityType, EntityMapFunctor>& di,
     QueryEntityType e,
-    FieldType<QueryFieldTag, UnderlyingPointerDI> v,
+    FieldType<QueryFieldTag> v,
     QueryFieldTag tag)
 {
     return store_impl(di.underlying, e, v, tag);
@@ -547,54 +464,20 @@ struct DisjointUnionDI
 };
 
 
-// Case 1: both DIs provide a type
-template<typename QueryFieldTag, typename DI1, typename DI2>
-requires ( has_field_type<QueryFieldTag, DI1> && has_field_type<QueryFieldTag, DI2> )
-struct FieldTypeImpl<QueryFieldTag, DisjointUnionDI<DI1, DI2>>
-{
-    static_assert(
-        std::is_same_v<
-            typename FieldType<QueryFieldTag, DI1>,
-            typename FieldType<QueryFieldTag, DI2>
-        >,
-        "If both underlying DIs have a field type for "
-        "this field, it must be consistent."
-    );
-
-    using Type = FieldType<QueryFieldTag, DI1>;
-};
-
-
-// Case 2: get type from DI1
-template<typename QueryFieldTag, typename DI1, typename DI2>
-requires ( has_field_type<QueryFieldTag, DI1> && !has_field_type<QueryFieldTag, DI2> )
-struct FieldTypeImpl<QueryFieldTag, DisjointUnionDI<DI1, DI2>>
-{
-    using Type = FieldType<QueryFieldTag, DI1>;
-};
-
-
-// Case 3: get type from DI2
-template<typename QueryFieldTag, typename DI1, typename DI2>
-requires ( !has_field_type<QueryFieldTag, DI1> && has_field_type<QueryFieldTag, DI2> )
-struct FieldTypeImpl<QueryFieldTag, DisjointUnionDI<DI1, DI2>>
-{
-    using Type = FieldType<QueryFieldTag, DI2>;
-};
-
-
 template<
     typename DI1,
     typename DI2,
     typename QueryEntityType,
     typename QueryFieldTag
 >
-requires (is_loadable<QueryFieldTag, DI1, QueryEntityType> || is_loadable<QueryFieldTag, DI2, QueryEntityType>)
+requires (
+    is_loadable<QueryFieldTag, DI1, QueryEntityType>
+    || is_loadable<QueryFieldTag, DI2, QueryEntityType>)
 auto load_impl(
     const DisjointUnionDI<DI1, DI2>& di,
     QueryEntityType e,
     QueryFieldTag tag)
--> FieldType<QueryFieldTag, DisjointUnionDI<DI1, DI2>>
+-> FieldType<QueryFieldTag>
 {
     if constexpr (is_loadable<QueryFieldTag, DI1, QueryEntityType>)
     {
@@ -630,11 +513,13 @@ template<
     typename QueryEntityType,
     typename QueryFieldTag
 >
-requires (is_storeable<QueryFieldTag, DI1, QueryEntityType> || is_storeable<QueryFieldTag, DI2, QueryEntityType>)
+requires (
+    is_storeable<QueryFieldTag, DI1, QueryEntityType>
+    || is_storeable<QueryFieldTag, DI2, QueryEntityType>)
 void store_impl(
     DisjointUnionDI<DI1, DI2>& di,
     QueryEntityType e,
-    FieldType<QueryFieldTag, DisjointUnionDI<DI1, DI2>> value,
+    FieldType<QueryFieldTag> value,
     QueryFieldTag tag)
 {
     if constexpr (is_storeable<QueryFieldTag, DI1, QueryEntityType>)
@@ -678,8 +563,7 @@ void store_impl(
 template<
     typename UnderlyingDI,
     typename EntityForNewFieldType,
-    typename NewFieldTag,
-    typename NewFieldValueType
+    typename NewFieldTag
 >
 struct ConstantLoadDI
 {
@@ -695,51 +579,19 @@ struct ConstantLoadDI
     );
 
     UnderlyingDI underlying;
-    NewFieldValueType constant;
-};
-
-// Case 1: the new field this wrapper introduces
-template<
-    typename UnderlyingDI,
-    typename EntityForNewFieldType,
-    typename NewFieldTag,
-    typename NewFieldValueType
->
-struct FieldTypeImpl<
-    NewFieldTag,
-    ConstantLoadDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag, NewFieldValueType>
->
-{
-    using Type = NewFieldValueType;
-};
-
-// Case 2: all other fields forward to underlying
-template<
-    typename UnderlyingDI,
-    typename EntityForNewFieldType,
-    typename NewFieldTag,
-    typename NewFieldValueType,
-    typename QueryFieldTag
->
-struct FieldTypeImpl<
-    QueryFieldTag,
-    ConstantLoadDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag, NewFieldValueType>
->
-{
-    using Type = FieldType<QueryFieldTag, UnderlyingDI>;
+    FieldType<NewFieldTag> constant;
 };
 
 template<
     typename UnderlyingDI,
     typename EntityForNewFieldType,
-    typename NewFieldTag,
-    typename NewFieldValueType
+    typename NewFieldTag
 >
 auto load_impl(
-    const ConstantLoadDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag, NewFieldValueType>& di,
+    const ConstantLoadDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag>& di,
     EntityForNewFieldType,
     NewFieldTag)
--> NewFieldValueType
+-> FieldType<NewFieldTag>
 {
     return di.constant;
 }
@@ -747,33 +599,23 @@ template<
     typename UnderlyingDI,
     typename EntityForNewFieldType,
     typename NewFieldTag,
-    typename NewFieldValueType,
     typename QueryEntityType,
     typename QueryFieldTag
 >
+requires (is_loadable<QueryFieldTag, UnderlyingDI, QueryEntityType>)
 auto load_impl(
-    const ConstantLoadDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag, NewFieldValueType>& di,
+    const ConstantLoadDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag>& di,
     QueryEntityType e,
     QueryFieldTag tag)
--> FieldType<QueryFieldTag, UnderlyingDI>
+-> FieldType<QueryFieldTag>
 {
-    static_assert(
-        std::is_same_v<
-            FieldType<QueryFieldTag, ConstantLoadDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag, NewFieldValueType>>,
-            FieldType<QueryFieldTag, UnderlyingDI>
-        >,
-        "Oops, this field had an inconsistent type "
-        "between the wrapper and the wrapped data "
-        "interfaces."
-    );
     return load_impl(di.underlying, e, tag);
 }
 
 template<
     typename UnderlyingDI,
     typename EntityForNewFieldType,
-    typename NewFieldTag,
-    typename NewFieldValueType
+    typename NewFieldTag
 >
 struct NoopStoreDI
 {
@@ -791,46 +633,15 @@ struct NoopStoreDI
     UnderlyingDI underlying;
 };
 
-// Case 1: the new field this wrapper introduces
 template<
     typename UnderlyingDI,
     typename EntityForNewFieldType,
-    typename NewFieldTag,
-    typename NewFieldValueType
->
-struct FieldTypeImpl<
-    NewFieldTag,
-    NoopStoreDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag, NewFieldValueType>
->
-{
-    using Type = NewFieldValueType;
-};
-
-// Case 2: all other fields forward to underlying
-template<
-    typename UnderlyingDI,
-    typename EntityForNewFieldType,
-    typename NewFieldTag,
-    typename NewFieldValueType,
-    typename QueryFieldTag
->
-struct FieldTypeImpl<
-    QueryFieldTag,
-    NoopStoreDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag, NewFieldValueType>
->
-{
-    using Type = FieldType<QueryFieldTag, UnderlyingDI>;
-};
-template<
-    typename UnderlyingDI,
-    typename EntityForNewFieldType,
-    typename NewFieldTag,
-    typename NewFieldValueType
+    typename NewFieldTag
 >
 void store_impl(
-    NoopStoreDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag, NewFieldValueType>&,
+    NoopStoreDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag>&,
     EntityForNewFieldType,
-    NewFieldValueType,
+    FieldType<NewFieldTag>,
     NewFieldTag)
 {
     /* no-op! */
@@ -839,25 +650,16 @@ template<
     typename UnderlyingDI,
     typename EntityForNewFieldType,
     typename NewFieldTag,
-    typename NewFieldValueType,
     typename QueryEntityType,
     typename QueryFieldTag
 >
+requires (is_storeable<QueryFieldTag, UnderlyingDI, QueryEntityType>)
 void store_impl(
-    NoopStoreDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag, NewFieldValueType>& di,
+    NoopStoreDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag>& di,
     QueryEntityType e,
-    FieldType<QueryFieldTag, UnderlyingDI> value,
+    FieldType<QueryFieldTag> value,
     QueryFieldTag tag)
 {
-    static_assert(
-        std::is_same_v<
-            FieldType<QueryFieldTag, NoopStoreDI<UnderlyingDI, EntityForNewFieldType, NewFieldTag, NewFieldValueType>>,
-            FieldType<QueryFieldTag, UnderlyingDI>
-        >,
-        "Oops, this field had an inconsistent type "
-        "between the wrapper and the wrapped data "
-        "interfaces."
-    );
     store_impl(di.underlying, e, value, tag);
 }
 
@@ -884,55 +686,23 @@ template<
 struct TransformDI
 {
     static_assert(
-        std::is_invocable_v<ForwardFunction, FieldType<OldFieldTag, UnderlyingDI>>,
+        std::is_invocable_r_v<FieldType<NewFieldTag>, ForwardFunction, FieldType<OldFieldTag>>,
         "Forward function must be callable with the "
-        "value of the old field."
+        "value of the old field and must return a "
+        "value of the new field."
     );
     static_assert(
         std::is_same_v<BackwardFunction, void>
         ||
-        std::is_invocable_v<BackwardFunction, std::invoke_result_t<ForwardFunction, FieldType<OldFieldTag, UnderlyingDI>>>,
+        std::is_invocable_r_v<FieldType<OldFieldTag>, BackwardFunction, FieldType<NewFieldTag>>,
         "Backward function must be callable with the "
-        "value of the new field."
+        "value of the new field and must return a "
+        "value of the old field."
     );
 
     UnderlyingDI underlying;
     ForwardFunction forward_function;
     BackwardFunction backward_function;
-};
-
-
-// Case 1: the new field this wrapper introduces
-template<
-    typename UnderlyingDI,
-    typename OldFieldTag,
-    typename NewFieldTag,
-    typename ForwardFunction,
-    typename BackwardFunction
->
-struct FieldTypeImpl<
-    NewFieldTag,
-    TransformDI<UnderlyingDI, OldFieldTag, NewFieldTag, ForwardFunction, BackwardFunction>
->
-{
-    using Type = std::invoke_result_t<ForwardFunction, FieldType<OldFieldTag, UnderlyingDI>>;
-};
-
-// Case 2: all other fields forward to underlying
-template<
-    typename UnderlyingDI,
-    typename OldFieldTag,
-    typename NewFieldTag,
-    typename ForwardFunction,
-    typename BackwardFunction,
-    typename QueryFieldTag
->
-struct FieldTypeImpl<
-    QueryFieldTag,
-    TransformDI<UnderlyingDI, OldFieldTag, NewFieldTag, ForwardFunction, BackwardFunction>
->
-{
-    using Type = FieldType<QueryFieldTag, UnderlyingDI>;
 };
 
 template<
@@ -943,11 +713,12 @@ template<
     typename BackwardFunction,
     typename QueryEntityType
 >
+requires (is_loadable<OldFieldTag, UnderlyingDI, QueryEntityType>)
 auto load_impl(
     const TransformDI<UnderlyingDI, OldFieldTag, NewFieldTag, ForwardFunction, BackwardFunction>& di,
     QueryEntityType e,
     NewFieldTag)
--> FieldType<NewFieldTag, TransformDI<UnderlyingDI, OldFieldTag, NewFieldTag, ForwardFunction, BackwardFunction>>
+-> FieldType<NewFieldTag>
 {
     static_assert(
         !is_loadable<NewFieldTag, UnderlyingDI, QueryEntityType>,
@@ -974,11 +745,12 @@ template<
     typename QueryFieldTag,
     typename QueryEntityType
 >
+requires (is_loadable<QueryFieldTag, UnderlyingDI, QueryEntityType>)
 auto load_impl(
     const TransformDI<UnderlyingDI, OldFieldTag, NewFieldTag, ForwardFunction, BackwardFunction>& di,
     QueryEntityType e,
     QueryFieldTag tag)
--> FieldType<QueryFieldTag, UnderlyingDI>
+-> FieldType<QueryFieldTag>
 {
     return load_impl(di.underlying, e, tag);
 }
@@ -991,11 +763,13 @@ template<
     typename BackwardFunction,
     typename QueryEntityType
 >
-requires (!std::is_same_v<BackwardFunction, void>)
+requires (
+    !std::is_same_v<BackwardFunction, void>
+    && is_storeable<OldFieldTag, UnderlyingDI, QueryEntityType>)
 void store_impl(
     TransformDI<UnderlyingDI, OldFieldTag, NewFieldTag, ForwardFunction, BackwardFunction>& di,
     QueryEntityType e,
-    FieldType<NewFieldTag, TransformDI<UnderlyingDI, OldFieldTag, NewFieldTag, ForwardFunction, BackwardFunction>> value,
+    FieldType<NewFieldTag> value,
     NewFieldTag)
 {
     static_assert(
@@ -1023,10 +797,11 @@ template<
     typename QueryFieldTag,
     typename QueryEntityType
 >
+requires (is_storeable<QueryFieldTag, UnderlyingDI, QueryEntityType>)
 void store_impl(
     TransformDI<UnderlyingDI, OldFieldTag, NewFieldTag, ForwardFunction, BackwardFunction>& di,
     QueryEntityType e,
-    FieldType<QueryFieldTag, UnderlyingDI> value,
+    FieldType<QueryFieldTag> value,
     QueryFieldTag tag)
 {
     store_impl(di.underlying, e, value, tag);
@@ -1070,28 +845,6 @@ struct IndirectionLookupDI
     UnderlyingDI underlying;
 };
 
-template<
-    typename UnderlyingDI,
-    typename ForeignKeyFieldTag,
-    typename EntityWithForeignKeyType,
-    bool bijection,
-    typename FieldTag
->
-struct FieldTypeImpl<
-    FieldTag,
-    IndirectionLookupDI<UnderlyingDI, ForeignKeyFieldTag, EntityWithForeignKeyType, bijection>
->
-{
-    /*
-    * It doesn't matter what entity this
-    * query corresponds to, which is
-    * nice as we don't need a conditional
-    * expression here. We always just
-    * pass to the underlying.
-    */
-    using Type = FieldType<FieldTag, UnderlyingDI>;
-};
-
 // Case 1: loads on `EntityWithForeignKeyType`s
 template<
     typename UnderlyingDI,
@@ -1102,12 +855,12 @@ template<
 >
 requires (
     is_loadable<QueryFieldTag, UnderlyingDI, EntityWithForeignKeyType>
-    || is_loadable<QueryFieldTag, UnderlyingDI, FieldType<ForeignKeyFieldTag, UnderlyingDI>>)
+    || is_loadable<QueryFieldTag, UnderlyingDI, FieldType<ForeignKeyFieldTag>>)
 auto load_impl(
     const IndirectionLookupDI<UnderlyingDI, ForeignKeyFieldTag, EntityWithForeignKeyType, bijection>& di,
     EntityWithForeignKeyType e,
     QueryFieldTag tag)
-    -> FieldType<QueryFieldTag, UnderlyingDI>
+    -> FieldType<QueryFieldTag>
 {
     if constexpr (is_loadable<QueryFieldTag, UnderlyingDI, EntityWithForeignKeyType>)
     {
@@ -1145,11 +898,12 @@ template<
     typename QueryEntityType,
     typename QueryFieldTag
 >
+requires (is_loadable<QueryFieldTag, UnderlyingDI, QueryEntityType>)
 auto load_impl(
     const IndirectionLookupDI<UnderlyingDI, ForeignKeyFieldTag, EntityWithForeignKeyType, bijection>& di,
     QueryEntityType e,
     QueryFieldTag tag)
-    -> FieldType<QueryFieldTag, UnderlyingDI>
+    -> FieldType<QueryFieldTag>
 {
     return load_impl(di.underlying, e, tag);
 }
@@ -1167,15 +921,23 @@ requires (
     bijection
     && (
         is_storeable<QueryFieldTag, UnderlyingDI, EntityWithForeignKeyType>
-        || is_storeable<QueryFieldTag, UnderlyingDI, FieldType<ForeignKeyFieldTag, UnderlyingDI>>))
+        || is_storeable<QueryFieldTag, UnderlyingDI, FieldType<ForeignKeyFieldTag>>))
 auto store_impl(
-    const IndirectionLookupDI<UnderlyingDI, ForeignKeyFieldTag, EntityWithForeignKeyType, bijection>& di,
+    IndirectionLookupDI<UnderlyingDI, ForeignKeyFieldTag, EntityWithForeignKeyType, bijection>& di,
     EntityWithForeignKeyType e,
-    FieldType<QueryFieldTag, UnderlyingDI> v,
+    FieldType<QueryFieldTag> v,
     QueryFieldTag tag)
 {
     if constexpr (is_storeable<QueryFieldTag, UnderlyingDI, EntityWithForeignKeyType>)
     {
+        static_assert(
+            is_loadable<QueryFieldTag, UnderlyingDI, EntityWithForeignKeyType>
+            || !is_loadable<QueryFieldTag, UnderlyingDI, FieldType<ForeignKeyFieldTag>>,
+            "Field is storeable on `EntityWithForeignKeyType` but "
+            "is only loadable on the foreign entity. This could "
+            "lead to ambiguities, so is a compiler error."
+        );
+
         /*
         * Always give preference to original entity,
         * even if both entity and the foreign entity
@@ -1186,6 +948,14 @@ auto store_impl(
     }
     else
     {
+        static_assert(
+            is_loadable<QueryFieldTag, UnderlyingDI, FieldType<ForeignKeyFieldTag>>
+            || !is_loadable<QueryFieldTag, UnderlyingDI, EntityWithForeignKeyType>,
+            "Field is storeable on the foreign entity but "
+            "is only loadable on the `EntityWithForeignKeyType`. "
+            "This could lead to ambiguities, so is a compiler error."
+        );
+
         /*
         * Note: if the caller is trying to store several
         * fields on the foreign entity (transparently),
@@ -1210,10 +980,11 @@ template<
     typename QueryEntityType,
     typename QueryFieldTag
 >
+requires (is_storeable<QueryFieldTag, UnderlyingDI, QueryEntityType>)
 auto store_impl(
-    const IndirectionLookupDI<UnderlyingDI, ForeignKeyFieldTag, EntityWithForeignKeyType, bijection>& di,
+    IndirectionLookupDI<UnderlyingDI, ForeignKeyFieldTag, EntityWithForeignKeyType, bijection>& di,
     QueryEntityType e,
-    FieldType<QueryFieldTag, UnderlyingDI> v,
+    FieldType<QueryFieldTag> v,
     QueryFieldTag tag)
 {
     return store_impl(di.underlying, e, v, tag);

@@ -19,7 +19,6 @@ namespace graph
 * singly-linked-list stack of vertices.
 */
 template<
-    typename DataInterface,
     /* what are the entities? */
     typename VertexEntityType,
     typename EdgeEntityType,
@@ -31,9 +30,11 @@ template<
     typename StackNextFieldTag,
     typename ColourFieldTag,
     /* constants */
-    FieldType<ColourFieldTag, DataInterface> UNEXPLORED,
-    FieldType<ColourFieldTag, DataInterface> EXPLORING,
-    FieldType<ColourFieldTag, DataInterface> EXPLORED
+    FieldType<ColourFieldTag> UNEXPLORED,
+    FieldType<ColourFieldTag> EXPLORING,
+    FieldType<ColourFieldTag> EXPLORED,
+    /* and the DI (this template arg is deducible) */
+    typename DataInterface
 >
 void dfs_linked_stack(
         DataInterface& data_interface,
@@ -44,7 +45,7 @@ void dfs_linked_stack(
     /*
     * Type aliases for brevity.
     */
-    using ColourType = FieldType<ColourFieldTag, DataInterface>;
+    using ColourType = FieldType<ColourFieldTag>;
 
     /*
     * Enforce our requirements on the data.
@@ -100,8 +101,7 @@ void dfs_linked_stack(
     static_assert(
         std::is_same_v<
             FieldType<
-                OutEdgeBeginFieldTag,
-                DataInterface>,
+                OutEdgeBeginFieldTag>,
             EdgeEntityType>,
         "Out-edge-begin field must be edge "
         "type."
@@ -109,8 +109,7 @@ void dfs_linked_stack(
     static_assert(
         std::is_same_v<
             FieldType<
-                OutEdgeEndFieldTag,
-                DataInterface>,
+                OutEdgeEndFieldTag>,
             EdgeEntityType>,
         "Out-edge-end field must be edge "
         "type."
@@ -118,8 +117,7 @@ void dfs_linked_stack(
     static_assert(
         std::is_same_v<
             FieldType<
-                EdgeTargetFieldTag,
-                DataInterface>,
+                EdgeTargetFieldTag>,
             VertexEntityType>,
         "Edge target field must be vertex "
         "type."
@@ -127,8 +125,7 @@ void dfs_linked_stack(
     static_assert(
         std::is_same_v<
             FieldType<
-                DfsTreeParentFieldTag,
-                DataInterface>,
+                DfsTreeParentFieldTag>,
             VertexEntityType>,
         "DFS tree parent field must be vertex "
         "type."
@@ -136,8 +133,7 @@ void dfs_linked_stack(
     static_assert(
         std::is_same_v<
             FieldType<
-                StackNextFieldTag,
-                DataInterface>,
+                StackNextFieldTag>,
             VertexEntityType>,
         "The stack next field must be vertex "
         "type."
